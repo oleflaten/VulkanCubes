@@ -53,3 +53,7 @@ compile_commands.json
 
 *_qmlcache.qrc
 /build
+/.vs
+CMakePresets.json
+CMakeUserPresets.json
+/out

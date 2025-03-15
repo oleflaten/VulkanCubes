@@ -10,6 +10,8 @@ int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
 
+	qputenv("QT_VK_DEBUG", "1"); // Set the environment variable programmatically to enable Vulkan debugging
+
     const bool dbg = qEnvironmentVariableIntValue("QT_VK_DEBUG");
 
     QVulkanInstance inst;

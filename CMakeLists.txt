@@ -16,6 +16,7 @@ qt_add_executable(VulkanCubes
     renderer.cpp renderer.h
     shader.cpp shader.h
     vulkanwindow.cpp vulkanwindow.h
+    utilities.h
 )
 
 set_target_properties(VulkanCubes PROPERTIES
