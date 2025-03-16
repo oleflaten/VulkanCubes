@@ -24,10 +24,10 @@ public:
 
     void startNextFrame() override;
 
-    bool animating() const { return m_animating; }
-    void setAnimating(bool a) { m_animating = a; }
+    bool animating() const { return mAnimating; }
+    void setAnimating(bool a) { mAnimating = a; }
 
-    int instanceCount() const { return m_instCount; }
+    int instanceCount() const { return mInstCount; }
     void addNew();
 
     void yaw(float degrees);
@@ -49,63 +49,63 @@ private:
     void buildDrawCallsForItems();
     void buildDrawCallsForFloor();
 
-    void markViewProjDirty() { m_vpDirty = m_window->concurrentFrameCount(); }
+    void markViewProjDirty() { mVpDirty = mWindow->concurrentFrameCount(); }
 
-    VulkanWindow *m_window;
-    QVulkanDeviceFunctions *m_devFuncs;
+    VulkanWindow *mWindow{nullptr};
+    QVulkanDeviceFunctions *mDevFuncs{nullptr};
 
-    bool m_useLogo = false;
-    Mesh m_blockMesh;
-    Mesh m_logoMesh;
-    VkBuffer m_blockVertexBuf = VK_NULL_HANDLE;
-    VkBuffer m_logoVertexBuf = VK_NULL_HANDLE;
+    bool mUseLogo{false};
+    Mesh mBlockMesh;
+    Mesh mLogoMesh;
+    VkBuffer mBlockVertexBuf{VK_NULL_HANDLE};
+    VkBuffer mLogoVertexBuf{VK_NULL_HANDLE};
     struct {
         VkDeviceSize vertUniSize;
         VkDeviceSize fragUniSize;
         VkDeviceSize uniMemStartOffset;
         Shader vs;
         Shader fs;
-        VkDescriptorPool descPool = VK_NULL_HANDLE;
-        VkDescriptorSetLayout descSetLayout = VK_NULL_HANDLE;
+        VkDescriptorPool descPool{VK_NULL_HANDLE};
+        VkDescriptorSetLayout descSetLayout{VK_NULL_HANDLE};
         VkDescriptorSet descSet;
-        VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-        VkPipeline pipeline = VK_NULL_HANDLE;
-    } m_itemMaterial;
+        VkPipelineLayout pipelineLayout{VK_NULL_HANDLE};
+        VkPipeline pipeline{VK_NULL_HANDLE};
+    } mItemMaterial;
 
-    VkBuffer m_floorVertexBuf = VK_NULL_HANDLE;
+    VkBuffer mFloorVertexBuf{VK_NULL_HANDLE};
     struct {
         Shader vs;
         Shader fs;
-        VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-        VkPipeline pipeline = VK_NULL_HANDLE;
-    } m_floorMaterial;
+        VkPipelineLayout pipelineLayout{VK_NULL_HANDLE};
+        VkPipeline pipeline{VK_NULL_HANDLE};
+    } mFloorMaterial;
 
-    VkDeviceMemory m_bufMem = VK_NULL_HANDLE;
-    VkBuffer m_uniBuf = VK_NULL_HANDLE;
+    VkDeviceMemory mBufMem{VK_NULL_HANDLE};
+    VkBuffer mUniBuf{VK_NULL_HANDLE};
 
-    VkPipelineCache m_pipelineCache = VK_NULL_HANDLE;
-    QFuture<void> m_pipelinesFuture;
+    VkPipelineCache mPipelineCache{VK_NULL_HANDLE};
+    QFuture<void> mPipelinesFuture;
 
-    QVector3D m_lightPos;
-    Camera m_cam;
+    QVector3D mLightPos;
+    Camera mCam;
 
-    QMatrix4x4 m_proj;
-    int m_vpDirty = 0;
-    QMatrix4x4 m_floorModel;
+    QMatrix4x4 mProj;
+    int mVpDirty{0};
+    QMatrix4x4 mFloorModel;
 
-    bool m_animating;
-    float m_rotation = 0.0f;
+    bool mAnimating;
+    float mRotation{0.0f};
 
-    int m_instCount;
-    int m_preparedInstCount = 0;
-    QByteArray m_instData;
-    VkBuffer m_instBuf = VK_NULL_HANDLE;
-    VkDeviceMemory m_instBufMem = VK_NULL_HANDLE;
+    int mInstCount;
+    int mPreparedInstCount{0};
+    QByteArray mInstData;
+    VkBuffer mInstBuf{VK_NULL_HANDLE};
+    VkDeviceMemory mInstBufMem{VK_NULL_HANDLE};
 
-    QFutureWatcher<void> m_frameWatcher;
-    bool m_framePending;
+    QFutureWatcher<void> mFrameWatcher;
+    bool mFramePending;
 
-    QMutex m_guiMutex;
+    QMutex mGuiMutex;
 };
 
 #endif
