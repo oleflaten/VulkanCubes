@@ -6,30 +6,31 @@
 #include <QFile>
 #include <QVulkanDeviceFunctions>
 
-void Shader::load(QVulkanInstance *inst, VkDevice dev, const QString &fn)
+void Shader::load(QVulkanInstance *inst, VkDevice dev, const QString &fileName)
 {
     reset();
     mMaybeRunning = true;
-    mFuture = QtConcurrent::run([inst, dev, fn]() {
+    mFuture = QtConcurrent::run([inst, dev, fileName]() {
         ShaderData sd;
-        QFile f(fn);
-        if (!f.open(QIODevice::ReadOnly)) {
-            qWarning("Failed to open %s", qPrintable(fn));
+        QFile file(fileName);
+        if (!file.open(QIODevice::ReadOnly)) {
+            qWarning("Failed to open %s", qPrintable(fileName));
             return sd;
         }
-        QByteArray blob = f.readAll();
-        VkShaderModuleCreateInfo shaderInfo;
-        memset(&shaderInfo, 0, sizeof(shaderInfo));
+        QByteArray blob = file.readAll();
+        VkShaderModuleCreateInfo shaderInfo{};
         shaderInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
         shaderInfo.codeSize = blob.size();
         shaderInfo.pCode = reinterpret_cast<const uint32_t *>(blob.constData());
+
         VkResult err = inst->deviceFunctions(dev)->vkCreateShaderModule(dev, &shaderInfo, nullptr, &sd.shaderModule);
         if (err != VK_SUCCESS) {
             qWarning("Failed to create shader module: %d", err);
             return sd;
         }
         return sd;
-    });
+    }
+    );
 }
 
 ShaderData *Shader::data()

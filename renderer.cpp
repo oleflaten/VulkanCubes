@@ -603,7 +603,7 @@ void Renderer::ensureBuffers()
         qFatal("Failed to bind uniform buffer memory: %d", err);
 
     // Copy vertex data.
-    quint8* p;
+    uint8_t* p{ nullptr };
     err = mDevFuncs->vkMapMemory(dev, mBufMem, 0, mItemMaterial.uniMemStartOffset, 0, reinterpret_cast<void**>(&p));
     if (err != VK_SUCCESS)
         qFatal("Failed to map memory: %d", err);
@@ -671,12 +671,11 @@ void Renderer::ensureInstanceBuffer()
         if (DBG)
             qDebug("Allocating %u bytes for instance data", uint32_t(memReq.size));
 
-        VkMemoryAllocateInfo memAllocInfo = {
-            VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            nullptr,
-            memReq.size,
-            mWindow->hostVisibleMemoryIndex()
-        };
+        VkMemoryAllocateInfo memAllocInfo{};
+		memAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		memAllocInfo.allocationSize = memReq.size;
+		memAllocInfo.memoryTypeIndex = mWindow->hostVisibleMemoryIndex();
+        
         err = mDevFuncs->vkAllocateMemory(dev, &memAllocInfo, nullptr, &mInstBufMem);
         if (err != VK_SUCCESS)
             qFatal("Failed to allocate memory: %d", err);
@@ -689,11 +688,13 @@ void Renderer::ensureInstanceBuffer()
     if (mInstCount != mPreparedInstCount) {
         if (DBG)
             qDebug("Preparing instances %d..%d", mPreparedInstCount, mInstCount - 1);
+
         char *p = mInstData.data();
         p += mPreparedInstCount * PER_INSTANCE_DATA_SIZE;
         auto gen = [](int a, int b) {
             return float(QRandomGenerator::global()->bounded(double(b - a)) + a);
         };
+
         for (int i = mPreparedInstCount; i < mInstCount; ++i) {
             // Apply a random translation to each instance of the mesh.
             float t[] = { gen(-5, 5), gen(-4, 6), gen(-30, 5) };
@@ -706,7 +707,7 @@ void Renderer::ensureInstanceBuffer()
         mPreparedInstCount = mInstCount;
     }
 
-    quint8 *p;
+    uint8_t* p{ nullptr };
     VkResult err = mDevFuncs->vkMapMemory(dev, mInstBufMem, 0, mInstCount * PER_INSTANCE_DATA_SIZE, 0,
                                            reinterpret_cast<void **>(&p));
     if (err != VK_SUCCESS)
@@ -730,7 +731,7 @@ void Renderer::getMatrices(QMatrix4x4 *vp, QMatrix4x4 *model, QMatrix3x3 *modelN
     *eyePos = view.inverted().column(3).toVector3D();
 }
 
-void Renderer::writeFragUni(quint8 *p, const QVector3D &eyePos)
+void Renderer::writeFragUni(uint8_t *p, const QVector3D &eyePos)
 {
     float ECCameraPosition[] = { eyePos.x(), eyePos.y(), eyePos.z() };
     memcpy(p, ECCameraPosition, 12);
@@ -796,8 +797,9 @@ void Renderer::buildFrame()
     VkClearColorValue clearColor = {{ 0.67f, 0.84f, 0.9f, 1.0f }};
     VkClearDepthStencilValue clearDS = { 1, 0 };
     VkClearValue clearValues[3]{};
-    clearValues[0].color = clearValues[2].color = clearColor;
+    clearValues[0].color = clearColor;
     clearValues[1].depthStencil = clearDS;
+    clearValues[2].color = clearColor;
 
     VkRenderPassBeginInfo rpBeginInfo{};
     rpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -860,7 +862,7 @@ void Renderer::buildDrawCallsForItems()
 
         // Map the uniform data for the current frame, ignore the geometry data at
         // the beginning and the uniforms for other frames.
-        quint8 *p;
+        uint8_t* p{ nullptr };
         VkResult err = mDevFuncs->vkMapMemory(dev, mBufMem,
                                                mItemMaterial.uniMemStartOffset + frameUniOffset,
                                                mItemMaterial.vertUniSize + mItemMaterial.fragUniSize,

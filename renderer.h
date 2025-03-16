@@ -44,7 +44,7 @@ private:
     void ensureBuffers();
     void ensureInstanceBuffer();
     void getMatrices(QMatrix4x4 *mvp, QMatrix4x4 *model, QMatrix3x3 *modelNormal, QVector3D *eyePos);
-    void writeFragUni(quint8 *p, const QVector3D &eyePos);
+    void writeFragUni(uint8_t *p, const QVector3D &eyePos);
     void buildFrame();
     void buildDrawCallsForItems();
     void buildDrawCallsForFloor();

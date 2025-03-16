@@ -16,7 +16,7 @@ struct ShaderData
 class Shader
 {
 public:
-    void load(QVulkanInstance *inst, VkDevice dev, const QString &fn);
+    void load(QVulkanInstance *inst, VkDevice dev, const QString & fileName);
     ShaderData *data();
     bool isValid() { return data()->isValid(); }
     void reset();
