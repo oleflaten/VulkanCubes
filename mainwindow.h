@@ -21,14 +21,14 @@ public:
 private:
     QLabel *createLabel(const QString &text);
 
-    QLabel *infoLabel;
-    QCheckBox *meshSwitch;
-    QLCDNumber *counterLcd;
-    QPushButton *newButton;
-    QPushButton *quitButton;
-    QPushButton *pauseButton;
+    QLabel* infoLabel{ nullptr };
+    QCheckBox *meshSwitch{ nullptr };
+    QLCDNumber *counterLcd{ nullptr };
+    QPushButton *newButton{ nullptr };
+    QPushButton *quitButton{ nullptr };
+    QPushButton *pauseButton{ nullptr };
 
-    int m_count = 128;
+    int mCount{ 128 };
 };
 
 #endif

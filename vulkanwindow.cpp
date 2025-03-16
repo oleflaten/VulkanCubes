@@ -7,57 +7,57 @@
 #include <QKeyEvent>
 
 VulkanWindow::VulkanWindow(bool dbg)
-    : m_debug(dbg)
+    : mDebug(dbg)
 {
 }
 
 QVulkanWindowRenderer *VulkanWindow::createRenderer()
 {
-    m_renderer = new Renderer(this, 128);
-    return m_renderer;
+    mRenderer = new Renderer(this, 128);
+    return mRenderer;
 }
 
 void VulkanWindow::addNew()
 {
-    m_renderer->addNew();
+    mRenderer->addNew();
 }
 
 void VulkanWindow::togglePaused()
 {
-    m_renderer->setAnimating(!m_renderer->animating());
+    mRenderer->setAnimating(!mRenderer->animating());
 }
 
 void VulkanWindow::meshSwitched(bool enable)
 {
-    m_renderer->setUseLogo(enable);
+    mRenderer->setUseLogo(enable);
 }
 
 void VulkanWindow::mousePressEvent(QMouseEvent *e)
 {
-    m_pressed = true;
-    m_lastPos = e->position().toPoint();
+    mPressed = true;
+    mLastPos = e->position().toPoint();
 }
 
 void VulkanWindow::mouseReleaseEvent(QMouseEvent *)
 {
-    m_pressed = false;
+    mPressed = false;
 }
 
 void VulkanWindow::mouseMoveEvent(QMouseEvent *e)
 {
-    if (!m_pressed)
+    if (!mPressed)
         return;
 
-    int dx = e->position().toPoint().x() - m_lastPos.x();
-    int dy = e->position().toPoint().y() - m_lastPos.y();
+    int dx = e->position().toPoint().x() - mLastPos.x();
+    int dy = e->position().toPoint().y() - mLastPos.y();
 
     if (dy)
-        m_renderer->pitch(dy / 10.0f);
+        mRenderer->pitch(dy / 10.0f);
 
     if (dx)
-        m_renderer->yaw(dx / 10.0f);
+        mRenderer->yaw(dx / 10.0f);
 
-    m_lastPos = e->position().toPoint();
+    mLastPos = e->position().toPoint();
 }
 
 void VulkanWindow::keyPressEvent(QKeyEvent *e)
@@ -65,16 +65,16 @@ void VulkanWindow::keyPressEvent(QKeyEvent *e)
     const float amount = e->modifiers().testFlag(Qt::ShiftModifier) ? 1.0f : 0.1f;
     switch (e->key()) {
     case Qt::Key_W:
-        m_renderer->walk(amount);
+        mRenderer->walk(amount);
         break;
     case Qt::Key_S:
-        m_renderer->walk(-amount);
+        mRenderer->walk(-amount);
         break;
     case Qt::Key_A:
-        m_renderer->strafe(-amount);
+        mRenderer->strafe(-amount);
         break;
     case Qt::Key_D:
-        m_renderer->strafe(amount);
+        mRenderer->strafe(amount);
         break;
     default:
         break;
@@ -83,5 +83,5 @@ void VulkanWindow::keyPressEvent(QKeyEvent *e)
 
 int VulkanWindow::instanceCount() const
 {
-    return m_renderer->instanceCount();
+    return mRenderer->instanceCount();
 }

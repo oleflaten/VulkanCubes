@@ -59,6 +59,9 @@ private:
     Mesh mLogoMesh;
     VkBuffer mBlockVertexBuf{VK_NULL_HANDLE};
     VkBuffer mLogoVertexBuf{VK_NULL_HANDLE};
+    VkBuffer mFloorVertexBuf{ VK_NULL_HANDLE };
+
+	// Item material = phong shader
     struct {
         VkDeviceSize vertUniSize;
         VkDeviceSize fragUniSize;
@@ -72,7 +75,7 @@ private:
         VkPipeline pipeline{VK_NULL_HANDLE};
     } mItemMaterial;
 
-    VkBuffer mFloorVertexBuf{VK_NULL_HANDLE};
+	// Floor material = color shader
     struct {
         Shader vs;
         Shader fs;
@@ -93,7 +96,7 @@ private:
     int mVpDirty{0};
     QMatrix4x4 mFloorModel;
 
-    bool mAnimating;
+    bool mAnimating{false};
     float mRotation{0.0f};
 
     int mInstCount;
@@ -103,7 +106,7 @@ private:
     VkDeviceMemory mInstBufMem{VK_NULL_HANDLE};
 
     QFutureWatcher<void> mFrameWatcher;
-    bool mFramePending;
+    bool mFramePending{false};
 
     QMutex mGuiMutex;
 };

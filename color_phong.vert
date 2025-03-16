@@ -9,9 +9,10 @@ layout(location = 2) in vec3 instTranslate;
 layout(location = 3) in vec3 instDiffuseAdjust;
 
 out gl_PerVertex { vec4 gl_Position; };
+
 layout(location = 0) out vec3 vECVertNormal;
 layout(location = 1) out vec3 vECVertPos;
-layout(location = 2) flat out vec3 vDiffuseAdjust;
+layout(location = 2) flat out vec3 vDiffuseAdjust; //flat == same value for all vertices of the triangle
 
 layout(std140, binding = 0) uniform buf {
     mat4 vp;

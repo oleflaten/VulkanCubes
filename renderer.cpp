@@ -33,6 +33,7 @@ Renderer::Renderer(VulkanWindow *w, int initialCount)
 
 void Renderer::preInitResources()
 {
+	//Just request 4x MSAA if available.
     const QList<int> sampleCounts = mWindow->supportedSampleCounts();
     if (DBG)
         qDebug() << "Supported sample counts:" << sampleCounts;
@@ -43,6 +44,7 @@ void Renderer::preInitResources()
     }
 }
 
+//Automatically called by the window when the Vulkan device is created.
 void Renderer::initResources()
 {
     if (DBG)
@@ -52,37 +54,41 @@ void Renderer::initResources()
     mFramePending = false;
 
     QVulkanInstance *inst = mWindow->vulkanInstance();
-    VkDevice dev = mWindow->device();
+    VkDevice logicalDevice = mWindow->device();
     const VkPhysicalDeviceLimits *pdevLimits = &mWindow->physicalDeviceProperties()->limits;
     const VkDeviceSize uniAlign = pdevLimits->minUniformBufferOffsetAlignment;
 
-    mDevFuncs = inst->deviceFunctions(dev);
+    mDevFuncs = inst->deviceFunctions(logicalDevice);
 
+    /************* Shaders ****************/
     // Note the std140 packing rules. A vec3 still has an alignment of 16,
     // while a mat3 is like 3 * vec3.
-    mItemMaterial.vertUniSize = aligned(2 * 64 + 48, uniAlign); // see color_phong.vert
+    mItemMaterial.vertUniSize = aligned(2 * 64 + 48, uniAlign);         // see color_phong.vert
     mItemMaterial.fragUniSize = aligned(6 * 16 + 12 + 2 * 4, uniAlign); // see color_phong.frag
 
+	//Phong shader for the blocks
     if (!mItemMaterial.vs.isValid())
-        mItemMaterial.vs.load(inst, dev, QStringLiteral(":/color_phong_vert.spv"));
+        mItemMaterial.vs.load(inst, logicalDevice, QStringLiteral(":/color_phong_vert.spv"));
     if (!mItemMaterial.fs.isValid())
-        mItemMaterial.fs.load(inst, dev, QStringLiteral(":/color_phong_frag.spv"));
+        mItemMaterial.fs.load(inst, logicalDevice, QStringLiteral(":/color_phong_frag.spv"));
 
+	//Color shader for the floor
     if (!mFloorMaterial.vs.isValid())
-        mFloorMaterial.vs.load(inst, dev, QStringLiteral(":/color_vert.spv"));
+        mFloorMaterial.vs.load(inst, logicalDevice, QStringLiteral(":/color_vert.spv"));
     if (!mFloorMaterial.fs.isValid())
-        mFloorMaterial.fs.load(inst, dev, QStringLiteral(":/color_frag.spv"));
+        mFloorMaterial.fs.load(inst, logicalDevice, QStringLiteral(":/color_frag.spv"));
 
     mPipelinesFuture = QtConcurrent::run(&Renderer::createPipelines, this);
 }
 
+//Called from initResources() in a separate thread.
 void Renderer::createPipelines()
 {
-    VkDevice dev = mWindow->device();
+    VkDevice logicalDevice = mWindow->device();
 
     VkPipelineCacheCreateInfo pipelineCacheInfo{};
     pipelineCacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-    VkResult err = mDevFuncs->vkCreatePipelineCache(dev, &pipelineCacheInfo, nullptr, &mPipelineCache);
+    VkResult err = mDevFuncs->vkCreatePipelineCache(logicalDevice, &pipelineCacheInfo, nullptr, &mPipelineCache);
     if (err != VK_SUCCESS)
         qFatal("Failed to create pipeline cache: %d", err);
 
@@ -90,51 +96,49 @@ void Renderer::createPipelines()
     createFloorPipeline();
 }
 
+//Called from createPipelines() in a separate thread.
+//Phong shader for the blocks
 void Renderer::createItemPipeline()
 {
-    VkDevice dev = mWindow->device();
+    VkDevice logicalDevice = mWindow->device();
 
-    // Vertex layout.
-    VkVertexInputBindingDescription vertexBindingDesc[] = {
-        {
-            0, // binding
-            8 * sizeof(float),
-            VK_VERTEX_INPUT_RATE_VERTEX
-        },
-        {
-            1,
-            6 * sizeof(float),
-            VK_VERTEX_INPUT_RATE_INSTANCE
-        }
-    };
-    VkVertexInputAttributeDescription vertexAttrDesc[] = {
-        { // position
-            0, // location
-            0, // binding
-            VK_FORMAT_R32G32B32_SFLOAT,
-            0 // offset
-        },
-        { // normal
-            1,
-            0,
-            VK_FORMAT_R32G32B32_SFLOAT,
-            5 * sizeof(float)
-        },
-        { // instTranslate
-            2,
-            1,
-            VK_FORMAT_R32G32B32_SFLOAT,
-            0
-        },
-        { // instDiffuseAdjust
-            3,
-            1,
-            VK_FORMAT_R32G32B32_SFLOAT,
-            3 * sizeof(float)
-        }
-    };
+	// 0 = vertex
+    VkVertexInputBindingDescription vertexBindingDesc[2]{};
+	vertexBindingDesc[0].binding = 0;
+	vertexBindingDesc[0].stride = 8 * sizeof(float);    //position, uv, normal = 3 + 2 + 3 = 8
+	vertexBindingDesc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo;
+    // 1 = instance
+    // Seems like instance translate and diffuse color
+	vertexBindingDesc[1].binding = 1;
+	vertexBindingDesc[1].stride = 6 * sizeof(float);
+	vertexBindingDesc[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+    VkVertexInputAttributeDescription vertexAttrDesc[4]{};
+	// 0 = position
+	vertexAttrDesc[0].location = 0;
+	vertexAttrDesc[0].binding = 0;
+	vertexAttrDesc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	vertexAttrDesc[0].offset = 0;
+
+    // 1 = normal 
+	vertexAttrDesc[1].location = 1;
+	vertexAttrDesc[1].binding = 0;
+	vertexAttrDesc[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+	vertexAttrDesc[1].offset = 5 * sizeof(float);   // because uv is 3 and 4
+
+    // 2 = instTranslate
+	vertexAttrDesc[2].location = 2;
+	vertexAttrDesc[2].binding = 1;
+	vertexAttrDesc[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+	vertexAttrDesc[2].offset = 0;
+    // 3 = instDiffuseAdjust
+	vertexAttrDesc[3].location = 3;
+	vertexAttrDesc[3].binding = 1;
+	vertexAttrDesc[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+	vertexAttrDesc[3].offset = 3 * sizeof(float);
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.pNext = nullptr;
     vertexInputInfo.flags = 0;
@@ -144,54 +148,52 @@ void Renderer::createItemPipeline()
     vertexInputInfo.pVertexAttributeDescriptions = vertexAttrDesc;
 
     // Descriptor set layout.
-    VkDescriptorPoolSize descPoolSizes[] = {
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2 }
-    };
+    VkDescriptorPoolSize descPoolSizes[1]{};
+	descPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+	descPoolSizes[0].descriptorCount = 2;
+
     VkDescriptorPoolCreateInfo descPoolInfo{};
     descPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descPoolInfo.maxSets = 1; // a single set is enough due to the dynamic uniform buffer
     descPoolInfo.poolSizeCount = sizeof(descPoolSizes) / sizeof(descPoolSizes[0]);
     descPoolInfo.pPoolSizes = descPoolSizes;
-    VkResult err = mDevFuncs->vkCreateDescriptorPool(dev, &descPoolInfo, nullptr, &mItemMaterial.descPool);
+
+    VkResult err = mDevFuncs->vkCreateDescriptorPool(logicalDevice, &descPoolInfo, nullptr, &mItemMaterial.descPool);
     if (err != VK_SUCCESS)
         qFatal("Failed to create descriptor pool: %d", err);
 
-    VkDescriptorSetLayoutBinding layoutBindings[] =
-    {
-        {
-            0, // binding
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            1, // descriptorCount
-            VK_SHADER_STAGE_VERTEX_BIT,
-            nullptr
-        },
-        {
-            1,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            1,
-            VK_SHADER_STAGE_FRAGMENT_BIT,
-            nullptr
-        }
-    };
-    VkDescriptorSetLayoutCreateInfo descLayoutInfo = {
-        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(layoutBindings) / sizeof(layoutBindings[0]),
-        layoutBindings
-    };
-    err = mDevFuncs->vkCreateDescriptorSetLayout(dev, &descLayoutInfo, nullptr, &mItemMaterial.descSetLayout);
+    VkDescriptorSetLayoutBinding layoutBindings[2]{};
+	layoutBindings[0].binding = 0;
+	layoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+	layoutBindings[0].descriptorCount = 1;
+	layoutBindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	layoutBindings[0].pImmutableSamplers = nullptr;
+
+	layoutBindings[1].binding = 1;
+    layoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    layoutBindings[1].descriptorCount = 1;
+    layoutBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    layoutBindings[1].pImmutableSamplers = nullptr;
+
+    VkDescriptorSetLayoutCreateInfo descLayoutInfo{};
+	descLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	descLayoutInfo.pNext = nullptr;
+	descLayoutInfo.flags = 0;
+	descLayoutInfo.bindingCount = sizeof(layoutBindings) / sizeof(layoutBindings[0]);
+	descLayoutInfo.pBindings = layoutBindings;
+    
+    err = mDevFuncs->vkCreateDescriptorSetLayout(logicalDevice, &descLayoutInfo, nullptr, &mItemMaterial.descSetLayout);
     if (err != VK_SUCCESS)
         qFatal("Failed to create descriptor set layout: %d", err);
 
-    VkDescriptorSetAllocateInfo descSetAllocInfo = {
-        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        nullptr,
-        mItemMaterial.descPool,
-        1,
-        &mItemMaterial.descSetLayout
-    };
-    err = mDevFuncs->vkAllocateDescriptorSets(dev, &descSetAllocInfo, &mItemMaterial.descSet);
+    VkDescriptorSetAllocateInfo descSetAllocInfo{};
+	descSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descSetAllocInfo.pNext = nullptr;
+	descSetAllocInfo.descriptorPool = mItemMaterial.descPool;
+	descSetAllocInfo.descriptorSetCount = 1;
+	descSetAllocInfo.pSetLayouts = &mItemMaterial.descSetLayout;
+
+    err = mDevFuncs->vkAllocateDescriptorSets(logicalDevice, &descSetAllocInfo, &mItemMaterial.descSet);
     if (err != VK_SUCCESS)
         qFatal("Failed to allocate descriptor set: %d", err);
 
@@ -201,112 +203,103 @@ void Renderer::createItemPipeline()
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &mItemMaterial.descSetLayout;
 
-    err = mDevFuncs->vkCreatePipelineLayout(dev, &pipelineLayoutInfo, nullptr, &mItemMaterial.pipelineLayout);
+    err = mDevFuncs->vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &mItemMaterial.pipelineLayout);
     if (err != VK_SUCCESS)
         qFatal("Failed to create pipeline layout: %d", err);
 
+    VkPipelineShaderStageCreateInfo vertShaderCreateInfo{};
+    vertShaderCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderCreateInfo.module = mItemMaterial.vs.data()->shaderModule;
+    vertShaderCreateInfo.pName = "main";                // start function in shader
+
+    VkPipelineShaderStageCreateInfo fragShaderCreateInfo{};
+    fragShaderCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderCreateInfo.module = mItemMaterial.fs.data()->shaderModule;
+    fragShaderCreateInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[2] = { vertShaderCreateInfo, fragShaderCreateInfo };
+
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-
-    VkPipelineShaderStageCreateInfo shaderStages[2] = {
-        {
-            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            nullptr,
-            0,
-            VK_SHADER_STAGE_VERTEX_BIT,
-            mItemMaterial.vs.data()->shaderModule,
-            "main",
-            nullptr
-        },
-        {
-            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            nullptr,
-            0,
-            VK_SHADER_STAGE_FRAGMENT_BIT,
-            mItemMaterial.fs.data()->shaderModule,
-            "main",
-            nullptr
-        }
-    };
     pipelineInfo.stageCount = 2;
     pipelineInfo.pStages = shaderStages;
-
     pipelineInfo.pVertexInputState = &vertexInputInfo;
 
-    VkPipelineInputAssemblyStateCreateInfo ia{};
-    ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    pipelineInfo.pInputAssemblyState = &ia;
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
 
-    VkPipelineViewportStateCreateInfo vp{};
-    vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    vp.viewportCount = 1;
-    vp.scissorCount = 1;
-    pipelineInfo.pViewportState = &vp;
+    VkPipelineViewportStateCreateInfo viewport{};
+    viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport.viewportCount = 1;
+    viewport.scissorCount = 1;
+    pipelineInfo.pViewportState = &viewport;
 
-    VkPipelineRasterizationStateCreateInfo rs{};
-    rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rs.polygonMode = VK_POLYGON_MODE_FILL;
-    rs.cullMode = VK_CULL_MODE_BACK_BIT;
-    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rs.lineWidth = 1.0f;
-    pipelineInfo.pRasterizationState = &rs;
+    VkPipelineRasterizationStateCreateInfo rasterization{};
+    rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterization.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterization.lineWidth = 1.0f;
+    pipelineInfo.pRasterizationState = &rasterization;
 
-    VkPipelineMultisampleStateCreateInfo ms{};
-    ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    ms.rasterizationSamples = mWindow->sampleCountFlagBits();
-    pipelineInfo.pMultisampleState = &ms;
+    VkPipelineMultisampleStateCreateInfo multisample{};
+    multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisample.rasterizationSamples = mWindow->sampleCountFlagBits();
+    pipelineInfo.pMultisampleState = &multisample;
 
-    VkPipelineDepthStencilStateCreateInfo ds{};
-    ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    ds.depthTestEnable = VK_TRUE;
-    ds.depthWriteEnable = VK_TRUE;
-    ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    pipelineInfo.pDepthStencilState = &ds;
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    pipelineInfo.pDepthStencilState = &depthStencil;
 
-    VkPipelineColorBlendStateCreateInfo cb{};
-    cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    VkPipelineColorBlendAttachmentState att{};
-    att.colorWriteMask = 0xF;
-    cb.attachmentCount = 1;
-    cb.pAttachments = &att;
-    pipelineInfo.pColorBlendState = &cb;
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = 0xF;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments = &colorBlendAttachment;
+    pipelineInfo.pColorBlendState = &colorBlend;
 
-    VkDynamicState dynEnable[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    VkPipelineDynamicStateCreateInfo dyn{};
-    dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dyn.dynamicStateCount = sizeof(dynEnable) / sizeof(VkDynamicState);
-    dyn.pDynamicStates = dynEnable;
-    pipelineInfo.pDynamicState = &dyn;
+    VkDynamicState dynamicEnable[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamic{};
+    dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic.dynamicStateCount = sizeof(dynamicEnable) / sizeof(VkDynamicState);
+    dynamic.pDynamicStates = dynamicEnable;
+    pipelineInfo.pDynamicState = &dynamic;
 
     pipelineInfo.layout = mItemMaterial.pipelineLayout;
     pipelineInfo.renderPass = mWindow->defaultRenderPass();
 
-    err = mDevFuncs->vkCreateGraphicsPipelines(dev, mPipelineCache, 1, &pipelineInfo, nullptr, &mItemMaterial.pipeline);
+    err = mDevFuncs->vkCreateGraphicsPipelines(logicalDevice, mPipelineCache, 1, &pipelineInfo, nullptr, &mItemMaterial.pipeline);
     if (err != VK_SUCCESS)
         qFatal("Failed to create graphics pipeline: %d", err);
 }
 
+//Called from createPipelines() in a separate thread.
+//Color shader for the floor
 void Renderer::createFloorPipeline()
 {
-    VkDevice dev = mWindow->device();
+    VkDevice logicalDevice = mWindow->device();
 
     // Vertex layout.
-    VkVertexInputBindingDescription vertexBindingDesc = {
-        0, // binding
-        3 * sizeof(float),
-        VK_VERTEX_INPUT_RATE_VERTEX
-    };
-    VkVertexInputAttributeDescription vertexAttrDesc[] = {
-        { // position
-            0, // location
-            0, // binding
-            VK_FORMAT_R32G32B32_SFLOAT,
-            0 // offset
-        },
-    };
+    VkVertexInputBindingDescription vertexBindingDesc{};
+	vertexBindingDesc.binding = 0;
+	vertexBindingDesc.stride = 3 * sizeof(float);
+	vertexBindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo;
+    VkVertexInputAttributeDescription vertexAttrDesc[1]{};
+	vertexAttrDesc[0].binding = 0;
+	vertexAttrDesc[0].location = 0;
+	vertexAttrDesc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	vertexAttrDesc[0].offset = 0;
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.pNext = nullptr;
     vertexInputInfo.flags = 0;
@@ -317,108 +310,95 @@ void Renderer::createFloorPipeline()
 
     // Do not bother with uniform buffers and descriptors, all the data fits
     // into the spec mandated minimum of 128 bytes for push constants.
-    VkPushConstantRange pcr[] = {
-        // mvp
-        {
-            VK_SHADER_STAGE_VERTEX_BIT,
-            0,
-            64
-        },
-        // color
-        {
-            VK_SHADER_STAGE_FRAGMENT_BIT,
-            64,
-            12
-        }
-    };
+	VkPushConstantRange pcr[2]{};
+    // mvp
+	pcr[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	pcr[0].offset = 0;
+	pcr[0].size = 64;   //one mat4
+	// color
+	pcr[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	pcr[1].offset = 64;
+	pcr[1].size = 12;   //one vec3
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.pushConstantRangeCount = sizeof(pcr) / sizeof(pcr[0]);
     pipelineLayoutInfo.pPushConstantRanges = pcr;
 
-    VkResult err = mDevFuncs->vkCreatePipelineLayout(dev, &pipelineLayoutInfo, nullptr, &mFloorMaterial.pipelineLayout);
+    VkResult err = mDevFuncs->vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &mFloorMaterial.pipelineLayout);
     if (err != VK_SUCCESS)
         qFatal("Failed to create pipeline layout: %d", err);
 
+    VkPipelineShaderStageCreateInfo vertShaderCreateInfo{};
+    vertShaderCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderCreateInfo.module = mFloorMaterial.vs.data()->shaderModule;
+    vertShaderCreateInfo.pName = "main";                // start function in shader
+
+    VkPipelineShaderStageCreateInfo fragShaderCreateInfo{};
+    fragShaderCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderCreateInfo.module = mFloorMaterial.fs.data()->shaderModule;
+    fragShaderCreateInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[2] = { vertShaderCreateInfo, fragShaderCreateInfo };
+
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-
-    VkPipelineShaderStageCreateInfo shaderStages[2] = {
-        {
-            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            nullptr,
-            0,
-            VK_SHADER_STAGE_VERTEX_BIT,
-            mFloorMaterial.vs.data()->shaderModule,
-            "main",
-            nullptr
-        },
-        {
-            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            nullptr,
-            0,
-            VK_SHADER_STAGE_FRAGMENT_BIT,
-            mFloorMaterial.fs.data()->shaderModule,
-            "main",
-            nullptr
-        }
-    };
     pipelineInfo.stageCount = 2;
     pipelineInfo.pStages = shaderStages;
-
     pipelineInfo.pVertexInputState = &vertexInputInfo;
 
-    VkPipelineInputAssemblyStateCreateInfo ia{};
-    ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-    pipelineInfo.pInputAssemblyState = &ia;
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
 
-    VkPipelineViewportStateCreateInfo vp{};
-    vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    vp.viewportCount = 1;
-    vp.scissorCount = 1;
-    pipelineInfo.pViewportState = &vp;
+    VkPipelineViewportStateCreateInfo viewport{};
+    viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport.viewportCount = 1;
+    viewport.scissorCount = 1;
+    pipelineInfo.pViewportState = &viewport;
 
-    VkPipelineRasterizationStateCreateInfo rs{};
-    rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rs.polygonMode = VK_POLYGON_MODE_FILL;
-    rs.cullMode = VK_CULL_MODE_BACK_BIT;
-    rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    rs.lineWidth = 1.0f;
-    pipelineInfo.pRasterizationState = &rs;
+    VkPipelineRasterizationStateCreateInfo rasterization{};
+    rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterization.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterization.lineWidth = 1.0f;
+    pipelineInfo.pRasterizationState = &rasterization;
 
-    VkPipelineMultisampleStateCreateInfo ms{};
-    ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    ms.rasterizationSamples = mWindow->sampleCountFlagBits();
-    pipelineInfo.pMultisampleState = &ms;
+    VkPipelineMultisampleStateCreateInfo multisample{};
+    multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisample.rasterizationSamples = mWindow->sampleCountFlagBits();
+    pipelineInfo.pMultisampleState = &multisample;
 
-    VkPipelineDepthStencilStateCreateInfo ds{};
-    ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    ds.depthTestEnable = VK_TRUE;
-    ds.depthWriteEnable = VK_TRUE;
-    ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    pipelineInfo.pDepthStencilState = &ds;
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    pipelineInfo.pDepthStencilState = &depthStencil;
 
-    VkPipelineColorBlendStateCreateInfo cb{};
-    cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    VkPipelineColorBlendAttachmentState att{};
-    att.colorWriteMask = 0xF;
-    cb.attachmentCount = 1;
-    cb.pAttachments = &att;
-    pipelineInfo.pColorBlendState = &cb;
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = 0xF;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments = &colorBlendAttachment;
+    pipelineInfo.pColorBlendState = &colorBlend;
 
-    VkDynamicState dynEnable[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    VkPipelineDynamicStateCreateInfo dyn{};
-    dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dyn.dynamicStateCount = sizeof(dynEnable) / sizeof(VkDynamicState);
-    dyn.pDynamicStates = dynEnable;
-    pipelineInfo.pDynamicState = &dyn;
+    VkDynamicState dynamicEnable[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamic{};
+    dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic.dynamicStateCount = sizeof(dynamicEnable) / sizeof(VkDynamicState);
+    dynamic.pDynamicStates = dynamicEnable;
+    pipelineInfo.pDynamicState = &dynamic;
 
     pipelineInfo.layout = mFloorMaterial.pipelineLayout;
     pipelineInfo.renderPass = mWindow->defaultRenderPass();
 
-    err = mDevFuncs->vkCreateGraphicsPipelines(dev, mPipelineCache, 1, &pipelineInfo, nullptr, &mFloorMaterial.pipeline);
+    err = mDevFuncs->vkCreateGraphicsPipelines(logicalDevice, mPipelineCache, 1, &pipelineInfo, nullptr, &mFloorMaterial.pipeline);
     if (err != VK_SUCCESS)
         qFatal("Failed to create graphics pipeline: %d", err);
 }
@@ -623,8 +603,8 @@ void Renderer::ensureBuffers()
         qFatal("Failed to bind uniform buffer memory: %d", err);
 
     // Copy vertex data.
-    quint8 *p;
-    err = mDevFuncs->vkMapMemory(dev, mBufMem, 0, mItemMaterial.uniMemStartOffset, 0, reinterpret_cast<void **>(&p));
+    quint8* p;
+    err = mDevFuncs->vkMapMemory(dev, mBufMem, 0, mItemMaterial.uniMemStartOffset, 0, reinterpret_cast<void**>(&p));
     if (err != VK_SUCCESS)
         qFatal("Failed to map memory: %d", err);
     memcpy(p, mBlockMesh.data()->geom.constData(), blockMeshByteCount);
@@ -633,8 +613,15 @@ void Renderer::ensureBuffers()
     mDevFuncs->vkUnmapMemory(dev, mBufMem);
 
     // Write descriptors for the uniform buffers in the vertex and fragment shaders.
-    VkDescriptorBufferInfo vertUni = { mUniBuf, 0, mItemMaterial.vertUniSize };
-    VkDescriptorBufferInfo fragUni = { mUniBuf, mItemMaterial.vertUniSize, mItemMaterial.fragUniSize };
+    VkDescriptorBufferInfo vertUniBufferInfo{};
+    vertUniBufferInfo.buffer = mUniBuf;
+    vertUniBufferInfo.offset = 0;
+    vertUniBufferInfo.range = mItemMaterial.vertUniSize;
+
+    VkDescriptorBufferInfo fragUniBufferInfo{};
+    fragUniBufferInfo.buffer = mUniBuf;
+    fragUniBufferInfo.offset = mItemMaterial.vertUniSize;
+    fragUniBufferInfo.range = mItemMaterial.fragUniSize;
 
     VkWriteDescriptorSet descWrite[2]{};
     descWrite[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -642,14 +629,14 @@ void Renderer::ensureBuffers()
     descWrite[0].dstBinding = 0;
     descWrite[0].descriptorCount = 1;
     descWrite[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    descWrite[0].pBufferInfo = &vertUni;
+    descWrite[0].pBufferInfo = &vertUniBufferInfo;
 
     descWrite[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descWrite[1].dstSet = mItemMaterial.descSet;
     descWrite[1].dstBinding = 1;
     descWrite[1].descriptorCount = 1;
     descWrite[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    descWrite[1].pBufferInfo = &fragUni;
+    descWrite[1].pBufferInfo = &fragUniBufferInfo;
 
     mDevFuncs->vkUpdateDescriptorSets(dev, 2, descWrite, 0, nullptr);
 }

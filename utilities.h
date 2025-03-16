@@ -6,8 +6,8 @@
 static float quadVert[] = { // Y up, front = CW
     -1, -1, 0,
     -1,  1, 0,
-    1, -1, 0,
-    1,  1, 0
+     1, -1, 0,
+     1,  1, 0
 };
 
 #define DBG Q_UNLIKELY(mWindow->isDebugEnabled())

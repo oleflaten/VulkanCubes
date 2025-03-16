@@ -32,7 +32,7 @@ MainWindow::MainWindow(VulkanWindow *vulkanWindow)
 
     counterLcd = new QLCDNumber(5);
     counterLcd->setSegmentStyle(QLCDNumber::Filled);
-    counterLcd->display(m_count);
+    counterLcd->display(mCount);
 
     newButton = new QPushButton(tr("&Add new"));
     newButton->setFocusPolicy(Qt::NoFocus);
@@ -44,8 +44,8 @@ MainWindow::MainWindow(VulkanWindow *vulkanWindow)
     connect(quitButton, &QPushButton::clicked, qApp, &QCoreApplication::quit);
     connect(newButton, &QPushButton::clicked, vulkanWindow, [this, vulkanWindow] {
         vulkanWindow->addNew();
-        m_count = vulkanWindow->instanceCount();
-        counterLcd->display(m_count);
+        mCount = vulkanWindow->instanceCount();
+        counterLcd->display(mCount);
     });
     connect(pauseButton, &QPushButton::clicked, vulkanWindow, &VulkanWindow::togglePaused);
     connect(meshSwitch, &QCheckBox::clicked, vulkanWindow, &VulkanWindow::meshSwitched);

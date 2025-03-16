@@ -2,7 +2,7 @@
 
 layout(location = 0) in vec3 vECVertNormal;
 layout(location = 1) in vec3 vECVertPos;
-layout(location = 2) flat in vec3 vDiffuseAdjust;
+layout(location = 2) flat in vec3 vDiffuseAdjust;   //flat qualifier to avoid interpolation
 
 layout(std140, binding = 1) uniform buf {
     vec3 ECCameraPosition;

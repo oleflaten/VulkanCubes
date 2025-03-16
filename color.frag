@@ -1,7 +1,8 @@
 #version 440
 
 layout(push_constant) uniform PC {
-    layout(offset = 64) vec3 color;
+    mat4 mvp;       //layout(offset = 64) was used instead of this
+    vec3 color;
 } pc;
 
 layout(location = 0) out vec4 fragColor;

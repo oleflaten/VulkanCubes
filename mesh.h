@@ -24,9 +24,9 @@ public:
     void reset();
 
 private:
-    bool m_maybeRunning = false;
-    QFuture<MeshData> m_future;
-    MeshData m_data;
+    bool mMaybeRunning{ false };
+    QFuture<MeshData> mFuture;
+    MeshData mData;
 };
 
 #endif
