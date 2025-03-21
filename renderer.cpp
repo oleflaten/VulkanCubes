@@ -53,31 +53,34 @@ void Renderer::initResources()
     mAnimating = true;
     mFramePending = false;
 
-    QVulkanInstance *inst = mWindow->vulkanInstance();
-    VkDevice logicalDevice = mWindow->device();
-    const VkPhysicalDeviceLimits *pdevLimits = &mWindow->physicalDeviceProperties()->limits;
-    const VkDeviceSize uniAlign = pdevLimits->minUniformBufferOffsetAlignment;
+    QVulkanInstance *vulkanInstance = mWindow->vulkanInstance();
+    VkDevice logicalDevice = mWindow->device(); //cannot be made a class member
 
-    mDevFuncs = inst->deviceFunctions(logicalDevice);
+    const VkPhysicalDeviceLimits *physicalDeviceLimits = &mWindow->physicalDeviceProperties()->limits;
+    const VkDeviceSize uniformAlignment = physicalDeviceLimits->minUniformBufferOffsetAlignment;
+
+    mDeviceFunctions = vulkanInstance->deviceFunctions(logicalDevice);
 
     /************* Shaders ****************/
     // Note the std140 packing rules. A vec3 still has an alignment of 16,
     // while a mat3 is like 3 * vec3.
-    mItemMaterial.vertUniSize = aligned(2 * 64 + 48, uniAlign);         // see color_phong.vert
-    mItemMaterial.fragUniSize = aligned(6 * 16 + 12 + 2 * 4, uniAlign); // see color_phong.frag
+    mItemMaterial.vertUniSize = aligned(2 * 64 + 48, uniformAlignment);         // 2x mat4, 1x mat3
+    mItemMaterial.fragUniSize = aligned(6 * 16 + 12 + 2 * 4, uniformAlignment); // 7x vec3, 2x float <-???
 
 	//Phong shader for the blocks
     if (!mItemMaterial.vs.isValid())
-        mItemMaterial.vs.load(inst, logicalDevice, QStringLiteral(":/color_phong_vert.spv"));
+        mItemMaterial.vs.load(vulkanInstance, logicalDevice, QStringLiteral(":/color_phong_vert.spv"));
     if (!mItemMaterial.fs.isValid())
-        mItemMaterial.fs.load(inst, logicalDevice, QStringLiteral(":/color_phong_frag.spv"));
+        mItemMaterial.fs.load(vulkanInstance, logicalDevice, QStringLiteral(":/color_phong_frag.spv"));
 
 	//Color shader for the floor
     if (!mFloorMaterial.vs.isValid())
-        mFloorMaterial.vs.load(inst, logicalDevice, QStringLiteral(":/color_vert.spv"));
+        mFloorMaterial.vs.load(vulkanInstance, logicalDevice, QStringLiteral(":/color_vert.spv"));
     if (!mFloorMaterial.fs.isValid())
-        mFloorMaterial.fs.load(inst, logicalDevice, QStringLiteral(":/color_frag.spv"));
+        mFloorMaterial.fs.load(vulkanInstance, logicalDevice, QStringLiteral(":/color_frag.spv"));
 
+    //Runs createPipelines() in a separate thread
+    //Returns a QFuture - the result of an asynchronous computation
     mPipelinesFuture = QtConcurrent::run(&Renderer::createPipelines, this);
 }
 
@@ -88,7 +91,7 @@ void Renderer::createPipelines()
 
     VkPipelineCacheCreateInfo pipelineCacheInfo{};
     pipelineCacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-    VkResult err = mDevFuncs->vkCreatePipelineCache(logicalDevice, &pipelineCacheInfo, nullptr, &mPipelineCache);
+    VkResult err = mDeviceFunctions->vkCreatePipelineCache(logicalDevice, &pipelineCacheInfo, nullptr, &mPipelineCache);
     if (err != VK_SUCCESS)
         qFatal("Failed to create pipeline cache: %d", err);
 
@@ -148,20 +151,21 @@ void Renderer::createItemPipeline()
     vertexInputInfo.pVertexAttributeDescriptions = vertexAttrDesc;
 
     // Descriptor set layout.
-    VkDescriptorPoolSize descPoolSizes[1]{};
-	descPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-	descPoolSizes[0].descriptorCount = 2;
+    VkDescriptorPoolSize descriptorPoolSizes[1]{};
+    descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    descriptorPoolSizes[0].descriptorCount = 2;
 
-    VkDescriptorPoolCreateInfo descPoolInfo{};
-    descPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    descPoolInfo.maxSets = 1; // a single set is enough due to the dynamic uniform buffer
-    descPoolInfo.poolSizeCount = sizeof(descPoolSizes) / sizeof(descPoolSizes[0]);
-    descPoolInfo.pPoolSizes = descPoolSizes;
+    VkDescriptorPoolCreateInfo descriptorPoolInfo{};
+    descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorPoolInfo.maxSets = 1; // a single set is enough due to the dynamic uniform buffer
+    descriptorPoolInfo.poolSizeCount = sizeof(descriptorPoolSizes) / sizeof(descriptorPoolSizes[0]);
+    descriptorPoolInfo.pPoolSizes = descriptorPoolSizes;
 
-    VkResult err = mDevFuncs->vkCreateDescriptorPool(logicalDevice, &descPoolInfo, nullptr, &mItemMaterial.descPool);
+    VkResult err = mDeviceFunctions->vkCreateDescriptorPool(logicalDevice, &descriptorPoolInfo, nullptr, &mItemMaterial.descriptorPool);
     if (err != VK_SUCCESS)
         qFatal("Failed to create descriptor pool: %d", err);
 
+    // OEF: Similar to what I have done, but I only use 1 for now for the Vertex shader
     VkDescriptorSetLayoutBinding layoutBindings[2]{};
 	layoutBindings[0].binding = 0;
 	layoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
@@ -175,25 +179,26 @@ void Renderer::createItemPipeline()
     layoutBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     layoutBindings[1].pImmutableSamplers = nullptr;
 
-    VkDescriptorSetLayoutCreateInfo descLayoutInfo{};
-	descLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	descLayoutInfo.pNext = nullptr;
-	descLayoutInfo.flags = 0;
-	descLayoutInfo.bindingCount = sizeof(layoutBindings) / sizeof(layoutBindings[0]);
-	descLayoutInfo.pBindings = layoutBindings;
+    VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{};
+    descriptorSetLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptorSetLayoutInfo.pNext = nullptr;
+    descriptorSetLayoutInfo.flags = 0;
+    descriptorSetLayoutInfo.bindingCount = sizeof(layoutBindings) / sizeof(layoutBindings[0]);
+    descriptorSetLayoutInfo.pBindings = layoutBindings;
     
-    err = mDevFuncs->vkCreateDescriptorSetLayout(logicalDevice, &descLayoutInfo, nullptr, &mItemMaterial.descSetLayout);
+    err = mDeviceFunctions->vkCreateDescriptorSetLayout(logicalDevice, &descriptorSetLayoutInfo, nullptr, &mItemMaterial.descriptorSetLayout);
     if (err != VK_SUCCESS)
         qFatal("Failed to create descriptor set layout: %d", err);
+    //----------------------------------------
 
-    VkDescriptorSetAllocateInfo descSetAllocInfo{};
-	descSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	descSetAllocInfo.pNext = nullptr;
-	descSetAllocInfo.descriptorPool = mItemMaterial.descPool;
-	descSetAllocInfo.descriptorSetCount = 1;
-	descSetAllocInfo.pSetLayouts = &mItemMaterial.descSetLayout;
+    VkDescriptorSetAllocateInfo descritprSetAllocateInfo{};
+    descritprSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descritprSetAllocateInfo.pNext = nullptr;
+    descritprSetAllocateInfo.descriptorPool = mItemMaterial.descriptorPool;
+    descritprSetAllocateInfo.descriptorSetCount = 1;
+    descritprSetAllocateInfo.pSetLayouts = &mItemMaterial.descriptorSetLayout;
 
-    err = mDevFuncs->vkAllocateDescriptorSets(logicalDevice, &descSetAllocInfo, &mItemMaterial.descSet);
+    err = mDeviceFunctions->vkAllocateDescriptorSets(logicalDevice, &descritprSetAllocateInfo, &mItemMaterial.descriptorSet);
     if (err != VK_SUCCESS)
         qFatal("Failed to allocate descriptor set: %d", err);
 
@@ -201,9 +206,9 @@ void Renderer::createItemPipeline()
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &mItemMaterial.descSetLayout;
+    pipelineLayoutInfo.pSetLayouts = &mItemMaterial.descriptorSetLayout;
 
-    err = mDevFuncs->vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &mItemMaterial.pipelineLayout);
+    err = mDeviceFunctions->vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &mItemMaterial.pipelineLayout);
     if (err != VK_SUCCESS)
         qFatal("Failed to create pipeline layout: %d", err);
 
@@ -276,7 +281,7 @@ void Renderer::createItemPipeline()
     pipelineInfo.layout = mItemMaterial.pipelineLayout;
     pipelineInfo.renderPass = mWindow->defaultRenderPass();
 
-    err = mDevFuncs->vkCreateGraphicsPipelines(logicalDevice, mPipelineCache, 1, &pipelineInfo, nullptr, &mItemMaterial.pipeline);
+    err = mDeviceFunctions->vkCreateGraphicsPipelines(logicalDevice, mPipelineCache, 1, &pipelineInfo, nullptr, &mItemMaterial.pipeline);
     if (err != VK_SUCCESS)
         qFatal("Failed to create graphics pipeline: %d", err);
 }
@@ -325,7 +330,7 @@ void Renderer::createFloorPipeline()
     pipelineLayoutInfo.pushConstantRangeCount = sizeof(pcr) / sizeof(pcr[0]);
     pipelineLayoutInfo.pPushConstantRanges = pcr;
 
-    VkResult err = mDevFuncs->vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &mFloorMaterial.pipelineLayout);
+    VkResult err = mDeviceFunctions->vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &mFloorMaterial.pipelineLayout);
     if (err != VK_SUCCESS)
         qFatal("Failed to create pipeline layout: %d", err);
 
@@ -398,7 +403,7 @@ void Renderer::createFloorPipeline()
     pipelineInfo.layout = mFloorMaterial.pipelineLayout;
     pipelineInfo.renderPass = mWindow->defaultRenderPass();
 
-    err = mDevFuncs->vkCreateGraphicsPipelines(logicalDevice, mPipelineCache, 1, &pipelineInfo, nullptr, &mFloorMaterial.pipeline);
+    err = mDeviceFunctions->vkCreateGraphicsPipelines(logicalDevice, mPipelineCache, 1, &pipelineInfo, nullptr, &mFloorMaterial.pipeline);
     if (err != VK_SUCCESS)
         qFatal("Failed to create graphics pipeline: %d", err);
 }
@@ -433,91 +438,91 @@ void Renderer::releaseResources()
 
     VkDevice dev = mWindow->device();
 
-    if (mItemMaterial.descSetLayout) {
-        mDevFuncs->vkDestroyDescriptorSetLayout(dev, mItemMaterial.descSetLayout, nullptr);
-        mItemMaterial.descSetLayout = VK_NULL_HANDLE;
+    if (mItemMaterial.descriptorSetLayout) {
+        mDeviceFunctions->vkDestroyDescriptorSetLayout(dev, mItemMaterial.descriptorSetLayout, nullptr);
+        mItemMaterial.descriptorSetLayout = VK_NULL_HANDLE;
     }
 
-    if (mItemMaterial.descPool) {
-        mDevFuncs->vkDestroyDescriptorPool(dev, mItemMaterial.descPool, nullptr);
-        mItemMaterial.descPool = VK_NULL_HANDLE;
+    if (mItemMaterial.descriptorPool) {
+        mDeviceFunctions->vkDestroyDescriptorPool(dev, mItemMaterial.descriptorPool, nullptr);
+        mItemMaterial.descriptorPool = VK_NULL_HANDLE;
     }
 
     if (mItemMaterial.pipeline) {
-        mDevFuncs->vkDestroyPipeline(dev, mItemMaterial.pipeline, nullptr);
+        mDeviceFunctions->vkDestroyPipeline(dev, mItemMaterial.pipeline, nullptr);
         mItemMaterial.pipeline = VK_NULL_HANDLE;
     }
 
     if (mItemMaterial.pipelineLayout) {
-        mDevFuncs->vkDestroyPipelineLayout(dev, mItemMaterial.pipelineLayout, nullptr);
+        mDeviceFunctions->vkDestroyPipelineLayout(dev, mItemMaterial.pipelineLayout, nullptr);
         mItemMaterial.pipelineLayout = VK_NULL_HANDLE;
     }
 
     if (mFloorMaterial.pipeline) {
-        mDevFuncs->vkDestroyPipeline(dev, mFloorMaterial.pipeline, nullptr);
+        mDeviceFunctions->vkDestroyPipeline(dev, mFloorMaterial.pipeline, nullptr);
         mFloorMaterial.pipeline = VK_NULL_HANDLE;
     }
 
     if (mFloorMaterial.pipelineLayout) {
-        mDevFuncs->vkDestroyPipelineLayout(dev, mFloorMaterial.pipelineLayout, nullptr);
+        mDeviceFunctions->vkDestroyPipelineLayout(dev, mFloorMaterial.pipelineLayout, nullptr);
         mFloorMaterial.pipelineLayout = VK_NULL_HANDLE;
     }
 
     if (mPipelineCache) {
-        mDevFuncs->vkDestroyPipelineCache(dev, mPipelineCache, nullptr);
+        mDeviceFunctions->vkDestroyPipelineCache(dev, mPipelineCache, nullptr);
         mPipelineCache = VK_NULL_HANDLE;
     }
 
     if (mBlockVertexBuf) {
-        mDevFuncs->vkDestroyBuffer(dev, mBlockVertexBuf, nullptr);
+        mDeviceFunctions->vkDestroyBuffer(dev, mBlockVertexBuf, nullptr);
         mBlockVertexBuf = VK_NULL_HANDLE;
     }
 
     if (mLogoVertexBuf) {
-        mDevFuncs->vkDestroyBuffer(dev, mLogoVertexBuf, nullptr);
+        mDeviceFunctions->vkDestroyBuffer(dev, mLogoVertexBuf, nullptr);
         mLogoVertexBuf = VK_NULL_HANDLE;
     }
 
     if (mFloorVertexBuf) {
-        mDevFuncs->vkDestroyBuffer(dev, mFloorVertexBuf, nullptr);
+        mDeviceFunctions->vkDestroyBuffer(dev, mFloorVertexBuf, nullptr);
         mFloorVertexBuf = VK_NULL_HANDLE;
     }
 
     if (mUniBuf) {
-        mDevFuncs->vkDestroyBuffer(dev, mUniBuf, nullptr);
+        mDeviceFunctions->vkDestroyBuffer(dev, mUniBuf, nullptr);
         mUniBuf = VK_NULL_HANDLE;
     }
 
     if (mBufMem) {
-        mDevFuncs->vkFreeMemory(dev, mBufMem, nullptr);
+        mDeviceFunctions->vkFreeMemory(dev, mBufMem, nullptr);
         mBufMem = VK_NULL_HANDLE;
     }
 
     if (mInstBuf) {
-        mDevFuncs->vkDestroyBuffer(dev, mInstBuf, nullptr);
+        mDeviceFunctions->vkDestroyBuffer(dev, mInstBuf, nullptr);
         mInstBuf = VK_NULL_HANDLE;
     }
 
     if (mInstBufMem) {
-        mDevFuncs->vkFreeMemory(dev, mInstBufMem, nullptr);
+        mDeviceFunctions->vkFreeMemory(dev, mInstBufMem, nullptr);
         mInstBufMem = VK_NULL_HANDLE;
     }
 
     if (mItemMaterial.vs.isValid()) {
-        mDevFuncs->vkDestroyShaderModule(dev, mItemMaterial.vs.data()->shaderModule, nullptr);
+        mDeviceFunctions->vkDestroyShaderModule(dev, mItemMaterial.vs.data()->shaderModule, nullptr);
         mItemMaterial.vs.reset();
     }
     if (mItemMaterial.fs.isValid()) {
-        mDevFuncs->vkDestroyShaderModule(dev, mItemMaterial.fs.data()->shaderModule, nullptr);
+        mDeviceFunctions->vkDestroyShaderModule(dev, mItemMaterial.fs.data()->shaderModule, nullptr);
         mItemMaterial.fs.reset();
     }
 
     if (mFloorMaterial.vs.isValid()) {
-        mDevFuncs->vkDestroyShaderModule(dev, mFloorMaterial.vs.data()->shaderModule, nullptr);
+        mDeviceFunctions->vkDestroyShaderModule(dev, mFloorMaterial.vs.data()->shaderModule, nullptr);
         mFloorMaterial.vs.reset();
     }
     if (mFloorMaterial.fs.isValid()) {
-        mDevFuncs->vkDestroyShaderModule(dev, mFloorMaterial.fs.data()->shaderModule, nullptr);
+        mDeviceFunctions->vkDestroyShaderModule(dev, mFloorMaterial.fs.data()->shaderModule, nullptr);
         mFloorMaterial.fs.reset();
     }
 }
@@ -536,44 +541,44 @@ void Renderer::ensureBuffers()
     const int blockMeshByteCount = mBlockMesh.data()->vertexCount * 8 * sizeof(float);
     bufInfo.size = blockMeshByteCount;
     bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    VkResult err = mDevFuncs->vkCreateBuffer(dev, &bufInfo, nullptr, &mBlockVertexBuf);
+    VkResult err = mDeviceFunctions->vkCreateBuffer(dev, &bufInfo, nullptr, &mBlockVertexBuf);
     if (err != VK_SUCCESS)
         qFatal("Failed to create vertex buffer: %d", err);
 
     VkMemoryRequirements blockVertMemReq;
-    mDevFuncs->vkGetBufferMemoryRequirements(dev, mBlockVertexBuf, &blockVertMemReq);
+    mDeviceFunctions->vkGetBufferMemoryRequirements(dev, mBlockVertexBuf, &blockVertMemReq);
 
     // Vertex buffer for the logo.
     const int logoMeshByteCount = mLogoMesh.data()->vertexCount * 8 * sizeof(float);
     bufInfo.size = logoMeshByteCount;
     bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    err = mDevFuncs->vkCreateBuffer(dev, &bufInfo, nullptr, &mLogoVertexBuf);
+    err = mDeviceFunctions->vkCreateBuffer(dev, &bufInfo, nullptr, &mLogoVertexBuf);
     if (err != VK_SUCCESS)
         qFatal("Failed to create vertex buffer: %d", err);
 
     VkMemoryRequirements logoVertMemReq;
-    mDevFuncs->vkGetBufferMemoryRequirements(dev, mLogoVertexBuf, &logoVertMemReq);
+    mDeviceFunctions->vkGetBufferMemoryRequirements(dev, mLogoVertexBuf, &logoVertMemReq);
 
     // Vertex buffer for the floor.
     bufInfo.size = sizeof(quadVert);
-    err = mDevFuncs->vkCreateBuffer(dev, &bufInfo, nullptr, &mFloorVertexBuf);
+    err = mDeviceFunctions->vkCreateBuffer(dev, &bufInfo, nullptr, &mFloorVertexBuf);
     if (err != VK_SUCCESS)
         qFatal("Failed to create vertex buffer: %d", err);
 
     VkMemoryRequirements floorVertMemReq;
-    mDevFuncs->vkGetBufferMemoryRequirements(dev, mFloorVertexBuf, &floorVertMemReq);
+    mDeviceFunctions->vkGetBufferMemoryRequirements(dev, mFloorVertexBuf, &floorVertMemReq);
 
     // Uniform buffer. Instead of using multiple descriptor sets, we take a
     // different approach: have a single dynamic uniform buffer and specify the
     // active-frame-specific offset at the time of binding the descriptor set.
     bufInfo.size = (mItemMaterial.vertUniSize + mItemMaterial.fragUniSize) * concurrentFrameCount;
     bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    err = mDevFuncs->vkCreateBuffer(dev, &bufInfo, nullptr, &mUniBuf);
+    err = mDeviceFunctions->vkCreateBuffer(dev, &bufInfo, nullptr, &mUniBuf);
     if (err != VK_SUCCESS)
         qFatal("Failed to create uniform buffer: %d", err);
 
     VkMemoryRequirements uniMemReq;
-    mDevFuncs->vkGetBufferMemoryRequirements(dev, mUniBuf, &uniMemReq);
+    mDeviceFunctions->vkGetBufferMemoryRequirements(dev, mUniBuf, &uniMemReq);
 
     // Allocate memory for everything at once.
     VkDeviceSize logoVertStartOffset = aligned(0 + blockVertMemReq.size, logoVertMemReq.alignment);
@@ -585,60 +590,61 @@ void Renderer::ensureBuffers()
         mItemMaterial.uniMemStartOffset + uniMemReq.size,
         mWindow->hostVisibleMemoryIndex()
     };
-    err = mDevFuncs->vkAllocateMemory(dev, &memAllocInfo, nullptr, &mBufMem);
+    err = mDeviceFunctions->vkAllocateMemory(dev, &memAllocInfo, nullptr, &mBufMem);
     if (err != VK_SUCCESS)
         qFatal("Failed to allocate memory: %d", err);
 
-    err = mDevFuncs->vkBindBufferMemory(dev, mBlockVertexBuf, mBufMem, 0);
+    err = mDeviceFunctions->vkBindBufferMemory(dev, mBlockVertexBuf, mBufMem, 0);
     if (err != VK_SUCCESS)
         qFatal("Failed to bind vertex buffer memory: %d", err);
-    err = mDevFuncs->vkBindBufferMemory(dev, mLogoVertexBuf, mBufMem, logoVertStartOffset);
+    err = mDeviceFunctions->vkBindBufferMemory(dev, mLogoVertexBuf, mBufMem, logoVertStartOffset);
     if (err != VK_SUCCESS)
         qFatal("Failed to bind vertex buffer memory: %d", err);
-    err = mDevFuncs->vkBindBufferMemory(dev, mFloorVertexBuf, mBufMem, floorVertStartOffset);
+    err = mDeviceFunctions->vkBindBufferMemory(dev, mFloorVertexBuf, mBufMem, floorVertStartOffset);
     if (err != VK_SUCCESS)
         qFatal("Failed to bind vertex buffer memory: %d", err);
-    err = mDevFuncs->vkBindBufferMemory(dev, mUniBuf, mBufMem, mItemMaterial.uniMemStartOffset);
+    err = mDeviceFunctions->vkBindBufferMemory(dev, mUniBuf, mBufMem, mItemMaterial.uniMemStartOffset);
     if (err != VK_SUCCESS)
         qFatal("Failed to bind uniform buffer memory: %d", err);
 
     // Copy vertex data.
     uint8_t* p{ nullptr };
-    err = mDevFuncs->vkMapMemory(dev, mBufMem, 0, mItemMaterial.uniMemStartOffset, 0, reinterpret_cast<void**>(&p));
+    err = mDeviceFunctions->vkMapMemory(dev, mBufMem, 0, mItemMaterial.uniMemStartOffset, 0, reinterpret_cast<void**>(&p));
     if (err != VK_SUCCESS)
         qFatal("Failed to map memory: %d", err);
     memcpy(p, mBlockMesh.data()->geom.constData(), blockMeshByteCount);
     memcpy(p + logoVertStartOffset, mLogoMesh.data()->geom.constData(), logoMeshByteCount);
     memcpy(p + floorVertStartOffset, quadVert, sizeof(quadVert));
-    mDevFuncs->vkUnmapMemory(dev, mBufMem);
+    mDeviceFunctions->vkUnmapMemory(dev, mBufMem);
 
     // Write descriptors for the uniform buffers in the vertex and fragment shaders.
-    VkDescriptorBufferInfo vertUniBufferInfo{};
-    vertUniBufferInfo.buffer = mUniBuf;
-    vertUniBufferInfo.offset = 0;
-    vertUniBufferInfo.range = mItemMaterial.vertUniSize;
+    // OEF: I have done it the same way but only have it for Vertex shader for now.
+    VkDescriptorBufferInfo vertUniformBufferInfo{};
+    vertUniformBufferInfo.buffer = mUniBuf;
+    vertUniformBufferInfo.offset = 0;
+    vertUniformBufferInfo.range = mItemMaterial.vertUniSize;
 
-    VkDescriptorBufferInfo fragUniBufferInfo{};
-    fragUniBufferInfo.buffer = mUniBuf;
-    fragUniBufferInfo.offset = mItemMaterial.vertUniSize;
-    fragUniBufferInfo.range = mItemMaterial.fragUniSize;
+    VkDescriptorBufferInfo fragUniformBufferInfo{};
+    fragUniformBufferInfo.buffer = mUniBuf;
+    fragUniformBufferInfo.offset = mItemMaterial.vertUniSize;
+    fragUniformBufferInfo.range = mItemMaterial.fragUniSize;
 
-    VkWriteDescriptorSet descWrite[2]{};
-    descWrite[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descWrite[0].dstSet = mItemMaterial.descSet;
-    descWrite[0].dstBinding = 0;
-    descWrite[0].descriptorCount = 1;
-    descWrite[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    descWrite[0].pBufferInfo = &vertUniBufferInfo;
+    VkWriteDescriptorSet writeDescriptorSet[2]{};
+    writeDescriptorSet[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSet[0].dstSet = mItemMaterial.descriptorSet;
+    writeDescriptorSet[0].dstBinding = 0;
+    writeDescriptorSet[0].descriptorCount = 1;
+    writeDescriptorSet[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    writeDescriptorSet[0].pBufferInfo = &vertUniformBufferInfo;
 
-    descWrite[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descWrite[1].dstSet = mItemMaterial.descSet;
-    descWrite[1].dstBinding = 1;
-    descWrite[1].descriptorCount = 1;
-    descWrite[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    descWrite[1].pBufferInfo = &fragUniBufferInfo;
+    writeDescriptorSet[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSet[1].dstSet = mItemMaterial.descriptorSet;
+    writeDescriptorSet[1].dstBinding = 1;
+    writeDescriptorSet[1].descriptorCount = 1;
+    writeDescriptorSet[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    writeDescriptorSet[1].pBufferInfo = &fragUniformBufferInfo;
 
-    mDevFuncs->vkUpdateDescriptorSets(dev, 2, descWrite, 0, nullptr);
+    mDeviceFunctions->vkUpdateDescriptorSets(dev, 2, writeDescriptorSet, 0, nullptr);
 }
 
 void Renderer::ensureInstanceBuffer()
@@ -662,12 +668,12 @@ void Renderer::ensureInstanceBuffer()
         // would not be nice.
         mInstData.resize(bufInfo.size);
 
-        VkResult err = mDevFuncs->vkCreateBuffer(dev, &bufInfo, nullptr, &mInstBuf);
+        VkResult err = mDeviceFunctions->vkCreateBuffer(dev, &bufInfo, nullptr, &mInstBuf);
         if (err != VK_SUCCESS)
             qFatal("Failed to create instance buffer: %d", err);
 
         VkMemoryRequirements memReq;
-        mDevFuncs->vkGetBufferMemoryRequirements(dev, mInstBuf, &memReq);
+        mDeviceFunctions->vkGetBufferMemoryRequirements(dev, mInstBuf, &memReq);
         if (DBG)
             qDebug("Allocating %u bytes for instance data", uint32_t(memReq.size));
 
@@ -676,11 +682,11 @@ void Renderer::ensureInstanceBuffer()
 		memAllocInfo.allocationSize = memReq.size;
 		memAllocInfo.memoryTypeIndex = mWindow->hostVisibleMemoryIndex();
         
-        err = mDevFuncs->vkAllocateMemory(dev, &memAllocInfo, nullptr, &mInstBufMem);
+        err = mDeviceFunctions->vkAllocateMemory(dev, &memAllocInfo, nullptr, &mInstBufMem);
         if (err != VK_SUCCESS)
             qFatal("Failed to allocate memory: %d", err);
 
-        err = mDevFuncs->vkBindBufferMemory(dev, mInstBuf, mInstBufMem, 0);
+        err = mDeviceFunctions->vkBindBufferMemory(dev, mInstBuf, mInstBufMem, 0);
         if (err != VK_SUCCESS)
             qFatal("Failed to bind instance buffer memory: %d", err);
     }
@@ -708,12 +714,12 @@ void Renderer::ensureInstanceBuffer()
     }
 
     uint8_t* p{ nullptr };
-    VkResult err = mDevFuncs->vkMapMemory(dev, mInstBufMem, 0, mInstCount * PER_INSTANCE_DATA_SIZE, 0,
+    VkResult err = mDeviceFunctions->vkMapMemory(dev, mInstBufMem, 0, mInstCount * PER_INSTANCE_DATA_SIZE, 0,
                                            reinterpret_cast<void **>(&p));
     if (err != VK_SUCCESS)
         qFatal("Failed to map memory: %d", err);
     memcpy(p, mInstData.constData(), mInstData.size());
-    mDevFuncs->vkUnmapMemory(dev, mInstBufMem);
+    mDeviceFunctions->vkUnmapMemory(dev, mInstBufMem);
 }
 
 void Renderer::getMatrices(QMatrix4x4 *vp, QMatrix4x4 *model, QMatrix3x3 *modelNormal, QVector3D *eyePos)
@@ -810,25 +816,25 @@ void Renderer::buildFrame()
     rpBeginInfo.clearValueCount = mWindow->sampleCountFlagBits() > VK_SAMPLE_COUNT_1_BIT ? 3 : 2;
     rpBeginInfo.pClearValues = clearValues;
     VkCommandBuffer cmdBuf = mWindow->currentCommandBuffer();
-    mDevFuncs->vkCmdBeginRenderPass(cmdBuf, &rpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+    mDeviceFunctions->vkCmdBeginRenderPass(cmdBuf, &rpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport viewport = {
         0, 0,
         float(sz.width()), float(sz.height()),
         0, 1
     };
-    mDevFuncs->vkCmdSetViewport(cb, 0, 1, &viewport);
+    mDeviceFunctions->vkCmdSetViewport(cb, 0, 1, &viewport);
 
     VkRect2D scissor = {
         { 0, 0 },
         { uint32_t(sz.width()), uint32_t(sz.height()) }
     };
-    mDevFuncs->vkCmdSetScissor(cb, 0, 1, &scissor);
+    mDeviceFunctions->vkCmdSetScissor(cb, 0, 1, &scissor);
 
     buildDrawCallsForFloor();
     buildDrawCallsForItems();
 
-    mDevFuncs->vkCmdEndRenderPass(cmdBuf);
+    mDeviceFunctions->vkCmdEndRenderPass(cmdBuf);
 }
 
 void Renderer::buildDrawCallsForItems()
@@ -836,18 +842,18 @@ void Renderer::buildDrawCallsForItems()
     VkDevice dev = mWindow->device();
     VkCommandBuffer cb = mWindow->currentCommandBuffer();
 
-    mDevFuncs->vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, mItemMaterial.pipeline);
+    mDeviceFunctions->vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, mItemMaterial.pipeline);
 
     VkDeviceSize vbOffset = 0;
-    mDevFuncs->vkCmdBindVertexBuffers(cb, 0, 1, mUseLogo ? &mLogoVertexBuf : &mBlockVertexBuf, &vbOffset);
-    mDevFuncs->vkCmdBindVertexBuffers(cb, 1, 1, &mInstBuf, &vbOffset);
+    mDeviceFunctions->vkCmdBindVertexBuffers(cb, 0, 1, mUseLogo ? &mLogoVertexBuf : &mBlockVertexBuf, &vbOffset);
+    mDeviceFunctions->vkCmdBindVertexBuffers(cb, 1, 1, &mInstBuf, &vbOffset);
 
     // Now provide offsets so that the two dynamic buffers point to the
     // beginning of the vertex and fragment uniform data for the current frame.
     uint32_t frameUniOffset = mWindow->currentFrame() * (mItemMaterial.vertUniSize + mItemMaterial.fragUniSize);
     uint32_t frameUniOffsets[] = { frameUniOffset, frameUniOffset };
-    mDevFuncs->vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, mItemMaterial.pipelineLayout, 0, 1,
-                                        &mItemMaterial.descSet, 2, frameUniOffsets);
+    mDeviceFunctions->vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, mItemMaterial.pipelineLayout, 0, 1,
+                                        &mItemMaterial.descriptorSet, 2, frameUniOffsets);
 
     if (mAnimating)
         mRotation += 0.5;
@@ -863,7 +869,7 @@ void Renderer::buildDrawCallsForItems()
         // Map the uniform data for the current frame, ignore the geometry data at
         // the beginning and the uniforms for other frames.
         uint8_t* p{ nullptr };
-        VkResult err = mDevFuncs->vkMapMemory(dev, mBufMem,
+        VkResult err = mDeviceFunctions->vkMapMemory(dev, mBufMem,
                                                mItemMaterial.uniMemStartOffset + frameUniOffset,
                                                mItemMaterial.vertUniSize + mItemMaterial.fragUniSize,
                                                0, reinterpret_cast<void **>(&p));
@@ -882,27 +888,27 @@ void Renderer::buildDrawCallsForItems()
         p += mItemMaterial.vertUniSize;
         writeFragUni(p, eyePos);
 
-        mDevFuncs->vkUnmapMemory(dev, mBufMem);
+        mDeviceFunctions->vkUnmapMemory(dev, mBufMem);
     }
 
-    mDevFuncs->vkCmdDraw(cb, (mUseLogo ? mLogoMesh.data() : mBlockMesh.data())->vertexCount, mInstCount, 0, 0);
+    mDeviceFunctions->vkCmdDraw(cb, (mUseLogo ? mLogoMesh.data() : mBlockMesh.data())->vertexCount, mInstCount, 0, 0);
 }
 
 void Renderer::buildDrawCallsForFloor()
 {
     VkCommandBuffer cb = mWindow->currentCommandBuffer();
 
-    mDevFuncs->vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, mFloorMaterial.pipeline);
+    mDeviceFunctions->vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, mFloorMaterial.pipeline);
 
     VkDeviceSize vbOffset = 0;
-    mDevFuncs->vkCmdBindVertexBuffers(cb, 0, 1, &mFloorVertexBuf, &vbOffset);
+    mDeviceFunctions->vkCmdBindVertexBuffers(cb, 0, 1, &mFloorVertexBuf, &vbOffset);
 
     QMatrix4x4 mvp = mProj * mCam.viewMatrix() * mFloorModel;
-    mDevFuncs->vkCmdPushConstants(cb, mFloorMaterial.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, 64, mvp.constData());
+    mDeviceFunctions->vkCmdPushConstants(cb, mFloorMaterial.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, 64, mvp.constData());
     float color[] = { 0.67f, 1.0f, 0.2f };
-    mDevFuncs->vkCmdPushConstants(cb, mFloorMaterial.pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 64, 12, color);
+    mDeviceFunctions->vkCmdPushConstants(cb, mFloorMaterial.pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 64, 12, color);
 
-    mDevFuncs->vkCmdDraw(cb, 4, 1, 0, 0);
+    mDeviceFunctions->vkCmdDraw(cb, 4, 1, 0, 0);
 }
 
 void Renderer::addNew()

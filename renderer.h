@@ -52,7 +52,8 @@ private:
     void markViewProjDirty() { mVpDirty = mWindow->concurrentFrameCount(); }
 
     VulkanWindow *mWindow{nullptr};
-    QVulkanDeviceFunctions *mDevFuncs{nullptr};
+    QVulkanDeviceFunctions *mDeviceFunctions{nullptr};
+    const VkDevice mLogicalDevice{nullptr};
 
     bool mUseLogo{false};
     Mesh mBlockMesh;
@@ -68,9 +69,9 @@ private:
         VkDeviceSize uniMemStartOffset;
         Shader vs;
         Shader fs;
-        VkDescriptorPool descPool{VK_NULL_HANDLE};
-        VkDescriptorSetLayout descSetLayout{VK_NULL_HANDLE};
-        VkDescriptorSet descSet;
+        VkDescriptorPool descriptorPool{VK_NULL_HANDLE};
+        VkDescriptorSetLayout descriptorSetLayout{VK_NULL_HANDLE};
+        VkDescriptorSet descriptorSet;
         VkPipelineLayout pipelineLayout{VK_NULL_HANDLE};
         VkPipeline pipeline{VK_NULL_HANDLE};
     } mItemMaterial;
@@ -84,7 +85,7 @@ private:
     } mFloorMaterial;
 
     VkDeviceMemory mBufMem{VK_NULL_HANDLE};
-    VkBuffer mUniBuf{VK_NULL_HANDLE};
+    VkBuffer mUniBuf{VK_NULL_HANDLE};           //For the uniforms in the Phong shader
 
     VkPipelineCache mPipelineCache{VK_NULL_HANDLE};
     QFuture<void> mPipelinesFuture;

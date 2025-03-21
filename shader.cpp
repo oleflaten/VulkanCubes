@@ -36,7 +36,7 @@ void Shader::load(QVulkanInstance *inst, VkDevice dev, const QString &fileName)
 ShaderData *Shader::data()
 {
     if (mMaybeRunning && !mData.isValid())
-        mData = mFuture.result();
+        mData = mFuture.result();   //blocks and waits till mFuture is ready
 
     return &mData;
 }

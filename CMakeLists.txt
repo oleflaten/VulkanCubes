@@ -19,6 +19,19 @@ qt_add_executable(VulkanCubes
     utilities.h
 )
 
+# Define the shader files
+set(SHADER_FILES
+    color.frag
+    color.vert
+    color_phong.frag
+    color_phong.vert
+)
+
+# Add the shader files to the project
+add_custom_target(Shaders
+    SOURCES ${SHADER_FILES}
+)
+
 set_target_properties(VulkanCubes PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
