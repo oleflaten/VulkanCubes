@@ -105,18 +105,21 @@ void Renderer::createItemPipeline()
 {
     VkDevice logicalDevice = mWindow->device();
 
+    /********************************* Vertex layout: *********************************/
 	// 0 = vertex
     VkVertexInputBindingDescription vertexBindingDesc[2]{};
 	vertexBindingDesc[0].binding = 0;
 	vertexBindingDesc[0].stride = 8 * sizeof(float);    //position, uv, normal = 3 + 2 + 3 = 8
 	vertexBindingDesc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
+    /********************************* Not used in my code yet: *********************************/
     // 1 = instance
     // Seems like instance translate and diffuse color
 	vertexBindingDesc[1].binding = 1;
 	vertexBindingDesc[1].stride = 6 * sizeof(float);
 	vertexBindingDesc[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
+    /********************************* Shader bindings: *********************************/
     VkVertexInputAttributeDescription vertexAttrDesc[4]{};
 	// 0 = position
 	vertexAttrDesc[0].location = 0;
@@ -130,12 +133,12 @@ void Renderer::createItemPipeline()
 	vertexAttrDesc[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 	vertexAttrDesc[1].offset = 5 * sizeof(float);   // because uv is 3 and 4
 
-    // 2 = instTranslate
+    // 2 = instTranslate - Not used in my code yet
 	vertexAttrDesc[2].location = 2;
 	vertexAttrDesc[2].binding = 1;
 	vertexAttrDesc[2].format = VK_FORMAT_R32G32B32_SFLOAT;
 	vertexAttrDesc[2].offset = 0;
-    // 3 = instDiffuseAdjust
+    // 3 = instDiffuseAdjust - Not used in my code yet
 	vertexAttrDesc[3].location = 3;
 	vertexAttrDesc[3].binding = 1;
 	vertexAttrDesc[3].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -149,11 +152,12 @@ void Renderer::createItemPipeline()
     vertexInputInfo.pVertexBindingDescriptions = vertexBindingDesc;
     vertexInputInfo.vertexAttributeDescriptionCount = sizeof(vertexAttrDesc) / sizeof(vertexAttrDesc[0]);
     vertexInputInfo.pVertexAttributeDescriptions = vertexAttrDesc;
+    /*******************************************************/
 
-    // Descriptor set layout.
+    // Descriptor set layout - own function in my code
     VkDescriptorPoolSize descriptorPoolSizes[1]{};
     descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    descriptorPoolSizes[0].descriptorCount = 2;
+    descriptorPoolSizes[0].descriptorCount = 2; // OEF: Differs from my code
 
     VkDescriptorPoolCreateInfo descriptorPoolInfo{};
     descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -166,25 +170,27 @@ void Renderer::createItemPipeline()
         qFatal("Failed to create descriptor pool: %d", err);
 
     // OEF: Similar to what I have done, but I only use 1 for now for the Vertex shader
-    VkDescriptorSetLayoutBinding layoutBindings[2]{};
-	layoutBindings[0].binding = 0;
-	layoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-	layoutBindings[0].descriptorCount = 1;
-	layoutBindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	layoutBindings[0].pImmutableSamplers = nullptr;
+    // in createDescriptorSetLayouts() function
+    VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[2]{};
+    descriptorSetLayoutBindings[0].binding = 0;
+    descriptorSetLayoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    descriptorSetLayoutBindings[0].descriptorCount = 1;
+    descriptorSetLayoutBindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    descriptorSetLayoutBindings[0].pImmutableSamplers = nullptr;
 
-	layoutBindings[1].binding = 1;
-    layoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    layoutBindings[1].descriptorCount = 1;
-    layoutBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    layoutBindings[1].pImmutableSamplers = nullptr;
+    // OEF:I don't do this cause I don't have anything in the fragment shader yet
+    descriptorSetLayoutBindings[1].binding = 1;
+    descriptorSetLayoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    descriptorSetLayoutBindings[1].descriptorCount = 1;
+    descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    descriptorSetLayoutBindings[1].pImmutableSamplers = nullptr;
 
     VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{};
     descriptorSetLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     descriptorSetLayoutInfo.pNext = nullptr;
     descriptorSetLayoutInfo.flags = 0;
-    descriptorSetLayoutInfo.bindingCount = sizeof(layoutBindings) / sizeof(layoutBindings[0]);
-    descriptorSetLayoutInfo.pBindings = layoutBindings;
+    descriptorSetLayoutInfo.bindingCount = sizeof(descriptorSetLayoutBindings) / sizeof(descriptorSetLayoutBindings[0]);
+    descriptorSetLayoutInfo.pBindings = descriptorSetLayoutBindings;
     
     err = mDeviceFunctions->vkCreateDescriptorSetLayout(logicalDevice, &descriptorSetLayoutInfo, nullptr, &mItemMaterial.descriptorSetLayout);
     if (err != VK_SUCCESS)
@@ -232,16 +238,16 @@ void Renderer::createItemPipeline()
     pipelineInfo.pStages = shaderStages;
     pipelineInfo.pVertexInputState = &vertexInputInfo;
 
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-
     VkPipelineViewportStateCreateInfo viewport{};
     viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     viewport.viewportCount = 1;
     viewport.scissorCount = 1;
     pipelineInfo.pViewportState = &viewport;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
 
     VkPipelineRasterizationStateCreateInfo rasterization{};
     rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -263,10 +269,11 @@ void Renderer::createItemPipeline()
     depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     pipelineInfo.pDepthStencilState = &depthStencil;
 
-    VkPipelineColorBlendStateCreateInfo colorBlend{};
-    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment.colorWriteMask = 0xF;
+
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     colorBlend.attachmentCount = 1;
     colorBlend.pAttachments = &colorBlendAttachment;
     pipelineInfo.pColorBlendState = &colorBlend;
@@ -277,7 +284,6 @@ void Renderer::createItemPipeline()
     dynamic.dynamicStateCount = sizeof(dynamicEnable) / sizeof(VkDynamicState);
     dynamic.pDynamicStates = dynamicEnable;
     pipelineInfo.pDynamicState = &dynamic;
-
     pipelineInfo.layout = mItemMaterial.pipelineLayout;
     pipelineInfo.renderPass = mWindow->defaultRenderPass();
 
@@ -315,20 +321,20 @@ void Renderer::createFloorPipeline()
 
     // Do not bother with uniform buffers and descriptors, all the data fits
     // into the spec mandated minimum of 128 bytes for push constants.
-	VkPushConstantRange pcr[2]{};
+    VkPushConstantRange pushConstantRange[2]{};
     // mvp
-	pcr[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	pcr[0].offset = 0;
-	pcr[0].size = 64;   //one mat4
+    pushConstantRange[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushConstantRange[0].offset = 0;
+    pushConstantRange[0].size = 64;   //one mat4
 	// color
-	pcr[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-	pcr[1].offset = 64;
-	pcr[1].size = 12;   //one vec3
+    pushConstantRange[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange[1].offset = 64;
+    pushConstantRange[1].size = 12;   //one vec3
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.pushConstantRangeCount = sizeof(pcr) / sizeof(pcr[0]);
-    pipelineLayoutInfo.pPushConstantRanges = pcr;
+    pipelineLayoutInfo.pushConstantRangeCount = sizeof(pushConstantRange) / sizeof(pushConstantRange[0]);
+    pipelineLayoutInfo.pPushConstantRanges = pushConstantRange;
 
     VkResult err = mDeviceFunctions->vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &mFloorMaterial.pipelineLayout);
     if (err != VK_SUCCESS)
@@ -348,16 +354,12 @@ void Renderer::createFloorPipeline()
 
     VkPipelineShaderStageCreateInfo shaderStages[2] = { vertShaderCreateInfo, fragShaderCreateInfo };
 
+    /*********************** Graphics pipelineInfo ********************************/
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = 2;
     pipelineInfo.pStages = shaderStages;
     pipelineInfo.pVertexInputState = &vertexInputInfo;
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
 
     VkPipelineViewportStateCreateInfo viewport{};
     viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -365,11 +367,17 @@ void Renderer::createFloorPipeline()
     viewport.scissorCount = 1;
     pipelineInfo.pViewportState = &viewport;
 
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;                    //Allow strips to be connected, not used in TriangleList
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+
     VkPipelineRasterizationStateCreateInfo rasterization{};
     rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterization.polygonMode = VK_POLYGON_MODE_FILL;
     rasterization.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterization.lineWidth = 1.0f;
     pipelineInfo.pRasterizationState = &rasterization;
 
@@ -385,21 +393,22 @@ void Renderer::createFloorPipeline()
     depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     pipelineInfo.pDepthStencilState = &depthStencil;
 
-    VkPipelineColorBlendStateCreateInfo colorBlend{};
-    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment.colorWriteMask = 0xF;
+
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     colorBlend.attachmentCount = 1;
     colorBlend.pAttachments = &colorBlendAttachment;
     pipelineInfo.pColorBlendState = &colorBlend;
 
+    // **** Dynamic State **** - dynamic states can be changed without recreating the pipeline
     VkDynamicState dynamicEnable[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    VkPipelineDynamicStateCreateInfo dynamic{};
-    dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic.dynamicStateCount = sizeof(dynamicEnable) / sizeof(VkDynamicState);
-    dynamic.pDynamicStates = dynamicEnable;
-    pipelineInfo.pDynamicState = &dynamic;
-
+    VkPipelineDynamicStateCreateInfo pipelineDynamicState{};
+    pipelineDynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    pipelineDynamicState.dynamicStateCount = sizeof(dynamicEnable) / sizeof(VkDynamicState);
+    pipelineDynamicState.pDynamicStates = dynamicEnable;
+    pipelineInfo.pDynamicState = &pipelineDynamicState;
     pipelineInfo.layout = mFloorMaterial.pipelineLayout;
     pipelineInfo.renderPass = mWindow->defaultRenderPass();
 
@@ -629,6 +638,7 @@ void Renderer::ensureBuffers()
     fragUniformBufferInfo.offset = mItemMaterial.vertUniSize;
     fragUniformBufferInfo.range = mItemMaterial.fragUniSize;
 
+    // I only have 1 for now, so not using array
     VkWriteDescriptorSet writeDescriptorSet[2]{};
     writeDescriptorSet[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writeDescriptorSet[0].dstSet = mItemMaterial.descriptorSet;
